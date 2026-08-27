@@ -49,13 +49,32 @@ export function resolveMeaning(candidates, { domain, scope } = {}) {
 // technically see rendered (link text, a frontmatter title): the alternative is a
 // carve-out per region kind, and the cost of skipping one redundant expansion is far
 // smaller than the cost of silently never expanding at all.
+//
+// The WHOLE span of the occurrence is tested, not just its first character, and skip
+// ranges the occurrence created ITSELF are discounted first. Both halves are load-
+// bearing, for opposite reasons:
+//
+//   - An expansion can be a skip region all on its own. An expansion written as
+//     `Literal` is an inline code span, and one written as [text](url) is a link, so
+//     once inserted, the copy this function goes looking for sits inside a region it
+//     brought with it. Counting that region reported every later run's own output as
+//     unexpanded prose, and each --write grew the user's document by another nested
+//     copy. A range lying wholly within the occurrence says nothing about the document
+//     around it, so it is dropped before the test.
+//   - A range that starts before the occurrence or reaches past its end IS the
+//     surrounding document, and an appearance inside one of those still does not count.
+//     That is what stops a fenced sample or a link title from swallowing the real first
+//     mention. Start and end are both tested against those, because an occurrence with
+//     one endpoint inside such a region is half markup and not a prose use either.
 export function alreadyExpanded(text, index, expansion, ranges = skipRanges(text)) {
   const prefix = text.slice(0, index).toLowerCase();
   const needle = expansion.toLowerCase();
   let from = 0;
   let found;
   while ((found = prefix.indexOf(needle, from)) !== -1) {
-    if (!inRanges(found, ranges)) return true;
+    const end = found + needle.length;
+    const around = ranges.filter(([s, e]) => !(s >= found && e <= end));
+    if (!inRanges(found, around) && !inRanges(end - 1, around)) return true;
     from = found + 1;
   }
   return false;
@@ -68,9 +87,14 @@ export function alreadyExpanded(text, index, expansion, ranges = skipRanges(text
 // repaired expansion would be exactly the guess this codebase declines to make, so such
 // an entry is refused and reported instead.
 //
-// The test is the matcher's own boundary rule, not a substring check: `includes` would
-// see SAN inside "Subject Alternative Name" and silently stop a perfectly good entry
-// from ever expanding. buildMatcher is used rather than findOccurrences because skip
+// The test is the matcher's own boundary rule, not a substring check. What separates the
+// two is an acronym that appears inside a WORD of its own expansion: `includes` sees CAT
+// in "CATALOG Access Tool" and silently stops a perfectly good entry from ever expanding,
+// while the boundary rule sees no standalone CAT token and allows it. (SAN and "Subject
+// Alternative Name" do not distinguish them — that phrase contains no contiguous "SAN" at
+// all, so a substring check allows it too.)
+//
+// buildMatcher is used rather than findOccurrences because skip
 // regions and the AM/PM guard are prose concerns — an expansion is not prose being
 // rewritten, and the meridiem guard could even hide a real self-reference here. The
 // regex is built fresh per call, so its /g lastIndex starts clean.
@@ -231,6 +255,18 @@ export function main(argv) {
   return changes.length ? 1 : 0;
 }
 
-if (process.argv[1] && import.meta.filename === path.resolve(process.argv[1])) {
+// realpathSync, not just path.resolve: import.meta.filename is already realpath-resolved,
+// so invoked through a symlinked path — which an installed plugin's directory can be — the
+// two spellings compare unequal, main() never runs, and the CLI exits 0 having printed and
+// written nothing. The fallback covers realpathSync throwing on a path that no longer exists.
+function invokedAs(arg) {
+  try {
+    return fs.realpathSync(arg);
+  } catch {
+    return path.resolve(arg);
+  }
+}
+
+if (process.argv[1] && import.meta.filename === invokedAs(process.argv[1])) {
   process.exit(main(process.argv.slice(2)));
 }

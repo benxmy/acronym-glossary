@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
   resolveMeaning, alreadyExpanded, planExpansions, applyExpansions, main,
 } from '../scripts/expand.js';
@@ -177,15 +178,74 @@ test('--write is idempotent: a self-referential entry never grows the document',
   }
 });
 
-test('an acronym that is only a substring of its expansion still expands', () => {
-  // The load-bearing control: an `includes`-based guard would see SAN inside "Subject
-  // Alternative Name" and refuse a perfectly good entry, with the idempotency test above
-  // still green.
+test('an acronym inside a WORD of its own expansion still expands', () => {
+  // The load-bearing control, because it is the shape that separates the two candidate
+  // implementations: "CATALOG Access Tool" contains "CAT" but contains no standalone CAT
+  // token, so the matcher's boundary rule allows the entry while `includes` refuses it and
+  // silently kills a good one.
+  const cat = entry({ acronym: 'CAT', expansion: 'CATALOG Access Tool' });
+  const plan = planExpansions('The CAT is indexed.', [cat]);
+  assert.equal(plan.ambiguous.length, 0);
+  assert.equal(plan.changes.length, 1);
+  assert.equal(expandOnce('The CAT is indexed.', [cat]), 'The CATALOG Access Tool (CAT) is indexed.');
+});
+
+test('an acronym whose letters are scattered through its expansion still expands', () => {
+  // Kept as a regression case, but NOT the control: "Subject Alternative Name" holds no
+  // contiguous "SAN" at all, so a substring guard allows this one too and it cannot tell
+  // the two implementations apart. The test above is the one that can.
   const san = entry({ acronym: 'SAN', expansion: 'Subject Alternative Name' });
   const plan = planExpansions('The SAN is set.', [san]);
   assert.equal(plan.ambiguous.length, 0);
   assert.equal(plan.changes.length, 1);
   assert.equal(expandOnce('The SAN is set.', [san]), 'The Subject Alternative Name (SAN) is set.');
+});
+
+// ── An expansion that is itself a skip region ────────────────────────────────
+// Nothing in the codebase rejects an entry written this way, and it is exactly what a
+// hand-written entry looks like when someone wants the term rendered as a literal or
+// hyperlinked. Once inserted, such an expansion opens a skip region of its own, so a check
+// that tested only the first character of the earlier copy read every later run's own
+// output as unexpanded prose — and each --write nested another copy into the user's
+// document. Byte-identical after runs 2 and 3 is the whole assertion.
+
+test('--write is idempotent when the expansion is itself an inline code span', () => {
+  const s = scratch('MFA is required.\n', [entry({ expansion: '`Multi-Factor Authentication`' })]);
+  const after = [];
+  for (const run of [1, 2, 3]) {
+    const { code } = runMain([s.file, '--write'], s);
+    assert.equal(code, 0, `run ${run} did not succeed`);
+    after.push(fs.readFileSync(s.file, 'utf8'));
+  }
+  assert.equal(after[0], '`Multi-Factor Authentication` (MFA) is required.\n');
+  assert.equal(after[1], after[0], 'run 2 must leave the document byte-identical');
+  assert.equal(after[2], after[0], 'run 3 must leave the document byte-identical');
+});
+
+test('--write is idempotent when the expansion is itself a markdown link', () => {
+  const linked = '[Single Sign-On](https://example.com/sso)';
+  const s = scratch('SSO is required.\n', [entry({ acronym: 'SSO', expansion: linked })]);
+  const after = [];
+  for (const run of [1, 2, 3]) {
+    const { code } = runMain([s.file, '--write'], s);
+    assert.equal(code, 0, `run ${run} did not succeed`);
+    after.push(fs.readFileSync(s.file, 'utf8'));
+  }
+  assert.equal(after[0], `${linked} (SSO) is required.\n`);
+  assert.equal(after[1], after[0], 'run 2 must leave the document byte-identical');
+  assert.equal(after[2], after[0], 'run 3 must leave the document byte-identical');
+});
+
+test('a skip region the occurrence created itself does not disqualify it', () => {
+  // The unit-level statement of the two tests above, and the half of the rule that is easy
+  // to lose: a range lying wholly inside the occurrence came from the expansion's own
+  // characters and says nothing about the document around it.
+  const text = '`Multi-Factor Authentication` (MFA) is required.\n';
+  assert.equal(alreadyExpanded(text, text.indexOf('MFA)'), '`Multi-Factor Authentication`'), true);
+  // ...while a range that reaches beyond the occurrence still disqualifies it. Same
+  // assertion as the skip-region tests above, made directly.
+  const inCode = 'See `Multi-Factor Authentication` in the sample. MFA is required.';
+  assert.equal(alreadyExpanded(inCode, inCode.indexOf('MFA is'), 'Multi-Factor Authentication'), false);
 });
 
 // ── main()'s success path ────────────────────────────────────────────────────
@@ -229,6 +289,23 @@ test('--scope reaches resolution and settles an otherwise ambiguous acronym', ()
   const report = JSON.parse(withHint.out);
   assert.equal(report.ambiguous.length, 0);
   assert.equal(report.pending[0].replacement, 'Certificate Authority (CA)');
+});
+
+test('invoked through a symlinked path the CLI still runs', () => {
+  // import.meta.filename is realpath-resolved and process.argv[1] is not, so the entry
+  // guard's plain path.resolve comparison failed through a symlink: main() never ran and
+  // the process exited 0 having printed nothing, which reads as an empty glossary. An
+  // installed plugin's directory can be a symlink, so this is the ordinary case, not an
+  // exotic one. Driven as a child process because the guard only exists at module top level.
+  const s = scratch('MFA is required.\n', [entry()]);
+  const link = path.join(s.dir, 'linked');
+  fs.symlinkSync(path.resolve(import.meta.dirname, '..'), link);
+  const r = spawnSync(process.execPath, [path.join(link, 'scripts', 'expand.js'), s.file], {
+    encoding: 'utf8',
+    env: { ...process.env, ACRONYM_GLOSSARY: s.glossary, HOME: s.home },
+  });
+  assert.equal(r.status, 1, 'a dry run with a change pending is the hook-facing 1');
+  assert.match(r.stdout, /MFA → Multi-Factor Authentication \(MFA\)/);
 });
 
 // ── Failure paths ───────────────────────────────────────────────────────────
