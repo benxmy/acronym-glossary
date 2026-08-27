@@ -8,5 +8,5 @@
   "scripts": {
     "test": "node --test"
   },
-  "files": ["scripts/", "skills/", "commands/", ".claude-plugin/", "examples/", "README.md", "LICENSE"]
+  "files": ["scripts/", "skills/", "commands/", ".claude-plugin/", "examples/", "docs/", "README.md", "LICENSE"]
 }

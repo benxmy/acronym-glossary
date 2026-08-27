@@ -84,8 +84,15 @@ winning outright:
 Where the same `(acronym, expansion)` appears in more than one location, the earlier
 location's entry wins whole, rather than the two being field-merged. This structure is
 what lets the engine stay public while your data stays private: **your own glossary
-never belongs in this repo**, and nothing here reads or writes outside the three
-locations above.
+never belongs in this repo**. Glossary data is only ever read from those three locations
+and only ever written to one of them, unless you name a different file yourself with
+`mine.js --out=`; `expand.js --write` rewrites the document you point it at, and that is
+the only other file anything here touches. Nothing is transmitted anywhere.
+
+One field is worth a look before you share a glossary: `sourceRef` records the path of
+the document an entry was mined from, which on a personal corpus can be a revealing
+absolute path. Review those values before committing a project-local glossary or sending
+one to anybody.
 
 ## Building your own UX
 
@@ -121,8 +128,10 @@ Stated plainly, so they don't surprise you later:
   mechanically pluralizing the expansion (`Authoritys` for `Certificate Authority`)
   would be exactly the kind of guess this tool declines to make.
 - **`AM` and `PM` are special-cased.** They're real acronyms in plenty of glossaries and
-  they also collide with clock time; a word, digit, or weekday before them is treated as
-  a meridiem and left alone.
+  they also collide with clock time. What's immediately before them decides: a digit, a
+  weekday (`Thu`, `Thursday`), or `today`/`tomorrow`/`yesterday` makes it a meridiem, and
+  it's left alone. Any other word does not — `The AM team owns it` still expands, while
+  `5:21 PM` and `Ship it Thu AM` don't.
 - **Mining cannot determine `scope`.** It can tell you what an acronym expands to, not
   whether that's an industry standard or something specific to one organisation. Mined
   entries always come in with `scope: null` — set it by hand if you want the distinction.
