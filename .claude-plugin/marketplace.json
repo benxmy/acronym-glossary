@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "acronym-glossary",
+  "description": "The acronym-glossary plugin: mine acronyms from your own documents, then expand them on first use.",
+  "owner": { "name": "Ben Myers" },
+  "plugins": [
+    {
+      "name": "acronym-glossary",
+      "description": "Mine acronyms from your own documents into a local glossary, then expand each one on first use when writing.",
+      "author": { "name": "Ben Myers" },
+      "source": "./",
+      "category": "writing"
+    }
+  ]
+}

@@ -22,9 +22,10 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/expand.js" <file> --json
   survived resolution. **Do not pick one for the user.** Show them the competing
   meanings and ask, or pass a hint (`--domain=…` / `--scope=…`) if the document's
   subject makes the right domain obvious.
-- Exit code `1` in a dry run means changes are pending; `0` means nothing to do; `2`
-  means it could not run at all — an unreadable file, or a glossary that is missing,
-  malformed or unparseable.
+- Exit code `1` in a dry run means changes are pending; `0` means nothing to do (a
+  missing glossary counts as nothing to do, not an error); `2` means it could not run
+  at all — an unreadable input file, or a glossary that exists but is malformed or
+  unparseable.
 
 If the document is one you are currently drafting rather than one on disk, apply the
 same rule by hand: expand each acronym on first mention only, leave later mentions

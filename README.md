@@ -4,12 +4,17 @@ Mines the acronyms out of documents you already have into a local glossary, then
 expands each one on its first use when you write. The glossary stays on your machine;
 only the mining and expansion engine is public.
 
-Install as a Claude Code plugin, then use `/glossary-mine` and `/expand-acronyms`, or
-let the `acronym-glossary` skill do both while you draft.
+This repo isn't on a public marketplace yet, so installing means cloning it and adding
+the clone as a local marketplace: `git clone <this repo> ~/acronym-glossary`, then
+inside Claude Code, `/plugin marketplace add ~/acronym-glossary` followed by
+`/plugin install acronym-glossary@acronym-glossary`. From there, use `/glossary-mine`
+and `/expand-acronyms`, or let the `acronym-glossary` skill do both while you draft.
 
 ## Quick start
 
-Copy the starter glossary somewhere the engine will find it:
+Copy the starter glossary somewhere the engine will find it. From a clone, that's the
+two lines below; with the plugin installed rather than cloned, the same file lives in
+the installed plugin's own `examples/` directory, so copy from there instead.
 
 ```bash
 mkdir -p ~/.acronym-glossary
@@ -17,14 +22,16 @@ cp examples/glossary.example.json ~/.acronym-glossary/glossary.json
 ```
 
 Mine a directory of your own notes as a dry run first — this only prints what it would
-add, it writes nothing:
+add, it writes nothing. From a clone, run the script directly; with the plugin
+installed, run the same thing as `/glossary-mine ~/notes --dry-run --source=notes`.
 
 ```bash
 node scripts/mine.js ~/notes --dry-run --source=notes
 ```
 
 Read the proposed entries and the unmatched count, then drop `--dry-run` to write. From
-there, run the expander on something you're drafting:
+there, run the expander on something you're drafting — `/expand-acronyms` is a slash
+command either way, clone or install:
 
 ```bash
 /expand-acronyms path/to/draft.md
