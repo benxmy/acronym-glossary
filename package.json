@@ -6,7 +6,7 @@
   "license": "MIT",
   "engines": { "node": ">=20.11" },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "files": ["scripts/", "skills/", "commands/", ".claude-plugin/", "examples/", "README.md", "LICENSE"]
 }
