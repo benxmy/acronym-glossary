@@ -19,12 +19,24 @@ export const rankOf = (source) => SOURCE_RANK[source] ?? 2;
 
 // Case-insensitive on both halves — dedup keys on meaning, not on how a file happened
 // to capitalize it, while entries are still stored and matched with their real casing.
+//
+// Consequence worth knowing: two entries whose acronyms differ only by case, with
+// expansions equal case-insensitively, collapse to one at merge time. The survivor
+// keeps whichever spelling came from the earlier location, and the discarded spelling
+// is unmatchable afterwards — byAcronym never sees it. That unmatchability comes from
+// matching being case-sensitive by design, not from the merge; the merge just inherits
+// it, and it's correct to collapse them, since they're the same term.
 export function entryKey(entry) {
   return `${String(entry.acronym).toUpperCase()}::${String(entry.expansion).toUpperCase()}`;
 }
 
 // The earlier location wins outright: the whole entry is kept rather than field-merged,
 // so a project override can't partially inherit a personal definition.
+//
+// The missing-field guard below is a defensive no-op for lists built by hand or in a
+// test, not the enforcement point — readGlossaryFile already rejects a malformed entry
+// on the way in, loudly and with a file and index, so nothing reaches this function
+// silently dropped. This function stays a pure merge.
 export function mergeEntries(lists) {
   const seen = new Map();
   for (const list of lists) {
@@ -47,8 +59,28 @@ export function glossaryLocations({ env = process.env, cwd = process.cwd(), home
 
 export function readGlossaryFile(file) {
   if (!fs.existsSync(file)) return null;
-  const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  let raw;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    throw new Error(`${file}: ${err.message}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`${file}: ${err.message}`);
+  }
   if (!Array.isArray(parsed?.entries)) throw new Error(`${file}: expected an "entries" array`);
+  // A dropped entry is the worst failure this tool has: a term the user believes they
+  // added, silently missing, with nothing telling them to look. So a malformed entry
+  // fails loudly here — where the filename and index are in hand — rather than
+  // vanishing quietly in mergeEntries.
+  parsed.entries.forEach((entry, i) => {
+    if (!entry?.acronym || !entry?.expansion) {
+      throw new Error(`${file}: entry ${i} is missing "acronym" or "expansion"`);
+    }
+  });
   return parsed.entries;
 }
 

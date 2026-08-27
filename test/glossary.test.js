@@ -81,6 +81,27 @@ test('readGlossaryFile rejects a file with no entries array', () => {
   assert.throws(() => readGlossaryFile(file), /expected an "entries" array/);
 });
 
+test('readGlossaryFile fails loudly on an entry missing acronym or expansion, naming the file and index', () => {
+  const dir = tmpdir();
+  const file = path.join(dir, 'missing-field.json');
+  fs.writeFileSync(file, JSON.stringify({
+    version: 1,
+    entries: [entry(), { acronym: 'SSO' /* no expansion */ }],
+  }));
+  assert.throws(
+    () => readGlossaryFile(file),
+    (err) => err.message.includes(file) && /entry 1/.test(err.message)
+      && /acronym.*expansion|expansion.*acronym/.test(err.message),
+  );
+});
+
+test('readGlossaryFile names the file when the JSON itself is unparseable', () => {
+  const dir = tmpdir();
+  const file = path.join(dir, 'broken.json');
+  fs.writeFileSync(file, '{ not valid json');
+  assert.throws(() => readGlossaryFile(file), (err) => err.message.startsWith(`${file}:`));
+});
+
 test('loadGlossary merges the files that exist, earlier winning', () => {
   const dir = tmpdir();
   const project = path.join(dir, 'project/.acronyms/glossary.json');
