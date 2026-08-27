@@ -1,0 +1,12 @@
+{
+  "name": "acronym-glossary",
+  "version": "0.1.0",
+  "description": "Mine acronyms from your own documents, then expand them on first use when you write.",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=20.11" },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "files": ["scripts/", "skills/", "commands/", ".claude-plugin/", "examples/", "README.md", "LICENSE"]
+}

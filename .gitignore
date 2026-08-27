@@ -1,0 +1,6 @@
+node_modules/
+.acronyms/
+glossary.json
+glossary-unmatched.json
+*.local.*
+.DS_Store
