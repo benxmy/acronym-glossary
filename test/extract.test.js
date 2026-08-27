@@ -142,8 +142,11 @@ test('trailingExpansion strips trailing symbols from the expansion', () => {
   assert.equal(trailingExpansion('MFA', 'the Multi-Factor Authentication —'), 'Multi-Factor Authentication');
 });
 
-test('a connector-ending span is skipped, not treated as the end of the search', () => {
-  // The loop must keep growing past a rejected span rather than bailing out of it.
+test('an expansion containing a connector word is still found', () => {
+  // Regression guard for the connector rule's blast radius: only a span that ENDS on a
+  // connector is refused. "of" sits in the middle here, and the stopwords-skipped
+  // variant is what matches COGS at all, so this is the case a careless widening of
+  // the rule would break. What pins skip-and-keep-growing is the SCAA test above.
   assert.deepEqual(
     leadingExpansion('COGS', 'Cost of Goods Sold this quarter.'),
     { expansion: 'Cost of Goods Sold', definition: 'this quarter.' },
