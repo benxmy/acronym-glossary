@@ -94,7 +94,9 @@ than one convention is in live use:
   reduces to `SAN`, while `RADIUS`, `CORS` and `PKCS` end in a capital `S` that belongs
   to the expansion.
 - **Version suffixes.** `SCEPv2` reduces to `SCEP`.
-- **Number words.** `Business to Business` matches `B2B`.
+- **Number words.** Spelled-out numbers become digits, so `Two Factor Authentication`
+  matches `2FA`. Note this covers number *words* only — `Business to Business` does not
+  match `B2B`, because "to" is a stopword, not the numeral two.
 
 ### Why a hand-curated layer is mandatory
 
