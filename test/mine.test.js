@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { walk, parseDelimited, candidatesFrom, singularForm, main } from '../scripts/mine.js';
 import { readGlossaryFile } from '../scripts/glossary.js';
 
@@ -153,6 +154,62 @@ test('an uppercase trailing S is never stripped', () => {
   assert.deepEqual(singularForm(...cors), { acronym: cors[0], expansion: cors[1] });
 });
 
+test('an uppercase trailing S is never stripped even when the initials would still match', () => {
+  // The case rule needs a shape where the FINAL initials gate cannot rescue it, or the test
+  // says nothing: widening the rule to /[A-Za-z]s$/i leaves RADIUS and CORS green, because
+  // "RADIU" does not spell their expansions anyway. Here it does. initialsMatch tries the
+  // phrase both with and without the hyphen as a word break, so "Network Name-Space" spells
+  // both NNS and NN — the trailing S is redundant, and only the case rule stands between
+  // NNS and a wrongly singularised NN.
+  assert.deepEqual(
+    singularForm('NNS', 'Network Name-Space'),
+    { acronym: 'NNS', expansion: 'Network Name-Space' },
+  );
+});
+
+test('a mismatched pair is never transformed, even with no plural to reverse', () => {
+  // Pins the final initials gate on its own. The expansion's last word is not a plural, so
+  // the plural branch never runs and this gate is the only thing standing between a
+  // mis-mined pair and an invented two-part entry the document never supported.
+  assert.deepEqual(
+    singularForm('DCs', 'Domain Registry'),
+    { acronym: 'DCs', expansion: 'Domain Registry' },
+  );
+});
+
+// ── A final word that ends in a lowercase s but is not a plural ──────────────
+// The plural branch keys on a trailing lowercase s, which -sis, -us and -ss words have
+// without being plural at all. Initials cannot catch it — they only ever inspect first
+// letters — and the damage does not stop at the glossary: the expander writes
+// "An Root Cause Analysi (RCA) was done." into the user's own draft.
+
+test('a final word ending in a non-plural lowercase s is left alone', () => {
+  for (const [acronym, expansion] of [
+    ['RCAs', 'Root Cause Analysis'],   // -sis, a singular Greek noun
+    ['HSs', 'Health Status'],          // -us
+    ['NAs', 'Network Access'],         // -ss
+    ['PPs', 'Peer Process'],           // -ss again, and an ordinary English word
+  ]) {
+    assert.deepEqual(singularForm(acronym, expansion), { acronym, expansion },
+      `${acronym} / ${expansion} must not be transformed`);
+  }
+});
+
+test('ordinary plurals still singularise', () => {
+  // The other side of the same predicate. Without these, tightening the rule into refusing
+  // every plural would leave the suite green, and the README promises these shapes work.
+  for (const [acronym, expansion, wantAcronym, wantExpansion] of [
+    ['SANs', 'Subject Alternative Names', 'SAN', 'Subject Alternative Name'],
+    ['ADs', 'Alternate Domains', 'AD', 'Alternate Domain'],
+    ['MSs', 'Managed Services', 'MS', 'Managed Service'],
+    ['DCs', 'Device Certificates', 'DC', 'Device Certificate'],
+  ]) {
+    assert.deepEqual(singularForm(acronym, expansion),
+      { acronym: wantAcronym, expansion: wantExpansion },
+      `${acronym} / ${expansion} must singularise`);
+  }
+});
+
 test('the singular form is what actually reaches the glossary', () => {
   const dir = tmpdir();
   const notes = path.join(dir, 'notes.md');
@@ -161,6 +218,54 @@ test('the singular form is what actually reaches the glossary', () => {
   assert.equal(main([notes, `--out=${out}`]), 0);
   const entries = readGlossaryFile(out);
   assert.deepEqual(entries.map((e) => [e.acronym, e.expansion]), [['SAN', 'Subject Alternative Name']]);
+});
+
+// ── The two-letter prose exclusion, applied to what gets STORED ──────────────
+
+test('a two-letter acronym does not reach the glossary through the plural path', () => {
+  // fromParens counts the letters it sees and "JDs" has three, so the candidate clears the
+  // prose gate and singularForm then strips the s — storing exactly the two-letter prose
+  // entry the gate exists to keep out. "Jane Does (JDs)" is DESIGN.md's own "Jane Doe (MFA)"
+  // false positive, one letter shorter.
+  const dir = tmpdir();
+  const notes = path.join(dir, 'notes.md');
+  fs.writeFileSync(notes, 'We met Jane Does (JDs) yesterday and used Endpoint Protections (EPs) too.\n');
+  const out = path.join(dir, 'glossary.json');
+  assert.equal(main([notes, `--out=${out}`]), 0);
+  assert.deepEqual(readGlossaryFile(out).map((e) => [e.acronym, e.expansion]), []);
+});
+
+test('a two-letter acronym from a trusted table row is still stored', () => {
+  // The other half: only the PROSE path excludes two-letter acronyms. A table row whose
+  // header names the first column is evidence in its own right, which is the whole reason
+  // the exclusion was ever scoped to prose. (SA rather than AM: AM is in the NOISE list and
+  // never becomes a candidate from any source, so it would pass this test vacuously.)
+  const dir = tmpdir();
+  const sheet = path.join(dir, 'terms.csv');
+  fs.writeFileSync(sheet, 'Acronym,Expansion\nSA,Service Account\n');
+  const out = path.join(dir, 'glossary.json');
+  assert.equal(main([sheet, `--out=${out}`]), 0);
+  assert.deepEqual(readGlossaryFile(out).map((e) => [e.acronym, e.expansion]), [['SA', 'Service Account']]);
+});
+
+test('invoked through a symlinked path the CLI still runs', () => {
+  // import.meta.filename is realpath-resolved and process.argv[1] is not, so the entry
+  // guard's plain path.resolve comparison failed through a symlink: main() never ran and the
+  // process exited 0 having printed nothing, which reads as "no acronyms found". An installed
+  // plugin's directory can be a symlink. Driven as a child process because the guard only
+  // exists at module top level.
+  const dir = tmpdir();
+  const notes = path.join(dir, 'notes.md');
+  fs.writeFileSync(notes, '- **MFA** — Multi-Factor Authentication\n');
+  const link = path.join(dir, 'linked');
+  fs.symlinkSync(path.resolve(import.meta.dirname, '..'), link);
+  const r = spawnSync(
+    process.execPath,
+    [path.join(link, 'scripts', 'mine.js'), notes, '--dry-run', `--out=${path.join(dir, 'glossary.json')}`],
+    { encoding: 'utf8' },
+  );
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /\+ MFA — Multi-Factor Authentication/);
 });
 
 test('main exits 1 on a glossary it cannot write, and says so on stderr', () => {

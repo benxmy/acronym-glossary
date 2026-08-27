@@ -103,7 +103,7 @@ export function initialsMatch(acr, phrase) {
   return false;
 }
 
-function letterCount(acr) {
+export function letterCount(acr) {
   return acr.replace(/[^A-Za-z0-9]/g, '').length;
 }
 
@@ -175,8 +175,13 @@ export function htmlToLines(html) {
     .split('\n')
     // The \u00A0 in the class below is a non-breaking space, written as an escape
     // because a literal one is invisible to the next reader. Exported HTML is full of
-    // them — from the &nbsp; above and from whatever editor produced the page — and a JS
-    // regex does not treat one as \s.
+    // them — from the &nbsp; above and from whatever editor produced the page.
+    //
+    // The class is spelled out rather than written as \s because it also lists a literal
+    // space and a tab, and \s would be too broad: \s matches \n too, so collapsing on it
+    // would eat the newlines the .split('\n') above just produced and the .filter(Boolean)
+    // below depends on. (\s does match U+00A0 — the very next .replace in this chain
+    // relies on exactly that to trim one off the end of a flattened table row.)
     .map((l) => l.replace(/[ \t\u00A0]+/g, ' ').replace(/\s*\|\s*$/, '').trim())
     .filter(Boolean);
 }
@@ -229,6 +234,12 @@ export function fromLines(lines) {
 // Inline prose: "Multi-Factor Authentication (MFA)" and "MFA (Multi-Factor Authentication)".
 // Two-letter acronyms are excluded here — "a Meeting (AM)" would sail through an
 // initials check, and prose has far too many of those to risk it.
+//
+// The gate below counts the letters of the acronym as WRITTEN, which is not the whole
+// rule: "JDs" has three and singularises to the two-letter "JD" later. Everything from
+// here is therefore marked `prose: true`, and mine.js re-applies the same count to the
+// acronym it is about to store. Candidates from fromLines and fromTable carry no such
+// mark, because there the format itself is the evidence prose cannot offer.
 const PAREN = /([^\n()]{3,120}?)\s*\(([0-9]?[A-Za-z][A-Za-z0-9./-]{1,11})\)/g;
 const REVERSE_PAREN = /\b([0-9]?[A-Z][A-Za-z0-9./-]{1,11})\s*\(([^)\n]{4,120})\)/g;
 
@@ -240,7 +251,7 @@ export function fromParens(text) {
     const acr = m[2];
     if (!looksLikeAcronym(acr) || letterCount(acr) < 3) continue;
     const expansion = trailingExpansion(acr, m[1]);
-    if (expansion) out.push({ acronym: acr, expansion, definition: null });
+    if (expansion) out.push({ acronym: acr, expansion, definition: null, prose: true });
   }
 
   for (const m of src.matchAll(REVERSE_PAREN)) {
@@ -249,7 +260,7 @@ export function fromParens(text) {
     const hit = leadingExpansion(acr, m[2]);
     // The whole parenthetical has to be the expansion. "MFA (Q1 FY27)" has no
     // leftover-free match and gets dropped here.
-    if (hit && !hit.definition) out.push({ acronym: acr, expansion: hit.expansion, definition: null });
+    if (hit && !hit.definition) out.push({ acronym: acr, expansion: hit.expansion, definition: null, prose: true });
   }
 
   return out;

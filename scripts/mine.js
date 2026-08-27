@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   fromLines, fromParens, fromTable, hasAcronymHeader, htmlToLines, initialsMatch,
-  looksLikeAcronym, thirdColumnRole,
+  letterCount, looksLikeAcronym, thirdColumnRole,
 } from './extract.js';
 import { entryKey, glossaryLocations, readGlossaryFile, saveGlossary } from './glossary.js';
 
@@ -78,12 +78,35 @@ export function candidatesFrom(file) {
   return [];
 }
 
-// Plural shapes that removing the final "s" does not reverse: "Authorities" would become
-// "Authoritie" and "Addresses" "Addresse". initialsMatch cannot catch that on its own,
-// because it only ever inspects first letters — a mangled final word still matches. So
-// these shapes are refused rather than repaired. Latin plurals ("Indices" → "Indice")
-// still slip through; naming every one of them would mean guessing at morphology, and the
-// cost of a miss is one visible misspelling in one mined entry a human can correct.
+// Whether the final word of an expansion is a plural at all is decided on positive
+// evidence, not on the absence of a denylist match. initialsMatch cannot help decide it —
+// it only ever inspects first letters, so a mangled final word still satisfies it — and
+// the cost of getting it wrong is not one bad glossary entry a human can correct. The
+// expander carries the entry into the user's draft and writes "An Root Cause Analysi (RCA)
+// was done." into their prose, which is a worse outcome than a missed match.
+//
+// REGULAR_PLURAL is the evidence. A regular plural is the singular plus a bare "s", and
+// the only thing that can testify to it is the letter in front of that s. A bare -s
+// follows "e" (Names, Services, Certificates) or a consonant that is not a sibilant
+// (Domains, Gateways, Graphs). It does not follow a, i, o or u: those are far more often
+// the tail of a singular noun (Alias, Analysis, Chaos, Status) than a plural marker. A
+// sibilant stem takes -es instead, which is IRREVERSIBLE_PLURAL's business. So the letters
+// that count as evidence are every letter except a, i, o, u, s, x and z — written below as
+// that complement, because the exclusions are the part worth reading. It is only ever
+// applied to a word already known to end in a LOWERCASE letter plus s, so it needs no /i.
+//
+// IRREVERSIBLE_PLURAL then catches the -es and -ies forms that ARE plurals but that
+// dropping one "s" does not reverse: "Authorities" would become "Authoritie" and
+// "Addresses" "Addresse".
+//
+// What the pair still lets through, in each direction:
+//   - Refused though genuinely plural: -as and -os plurals (Areas, Scenarios), Latin
+//     plurals (Indices → Indice), and invariants (Series). The cost is an entry stored
+//     with its plural acronym, which then matches nothing — inert, and visible in the
+//     glossary where a human can see it. README lists this under Known limitations.
+//   - Accepted though singular: the few consonant-stem singular nouns (Lens, News, Means,
+//     Corps). Telling those from Domains needs a dictionary, not a rule.
+const REGULAR_PLURAL = /[^aiousxz]s$/;
 const IRREVERSIBLE_PLURAL = /(?:ies|(?:s|x|z|ch|sh)es)$/i;
 
 /**
@@ -109,12 +132,8 @@ export function singularForm(acronym, expansion) {
   const words = phrase.trim().split(/\s+/);
   const last = words[words.length - 1] || '';
   if (/[a-z]s$/.test(last)) {
-    if (IRREVERSIBLE_PLURAL.test(last)) return asMined;
-    const candidate = [...words.slice(0, -1), last.slice(0, -1)].join(' ');
-    // The singularised expansion is kept only if it still spells the singular acronym.
-    // "Big Tens" → "Big Ten" fails, because a spelled-out number word becomes a digit.
-    if (!initialsMatch(singular, candidate)) return asMined;
-    phrase = candidate;
+    if (!REGULAR_PLURAL.test(last) || IRREVERSIBLE_PLURAL.test(last)) return asMined;
+    phrase = [...words.slice(0, -1), last.slice(0, -1)].join(' ');
     // Both refusals above abandon the whole transformation rather than keeping the
     // singular acronym beside a plural expansion. A mismatched pair matches more
     // documents but expands them wrongly — "Certificate Authorities (CA)" is prose this
@@ -122,8 +141,12 @@ export function singularForm(acronym, expansion) {
     // than a missed match. An unmatched plural entry is merely inert, and visible.
   }
 
-  // Last gate: if the singular acronym and the expansion we ended up with don't spell
-  // each other, transform nothing at all.
+  // Last gate, and the only initials check left here: if the singular acronym and the
+  // expansion we ended up with don't spell each other, transform nothing at all. It
+  // covers two shapes. A singularised expansion that no longer spells the acronym —
+  // "Big Tens" → "Big Ten" fails, because a spelled-out number word becomes a digit —
+  // and a pair that never spelled each other to begin with, where stripping the
+  // acronym's s would invent an entry the document never supported.
   if (!initialsMatch(singular, phrase)) return asMined;
   return { acronym: singular, expansion: phrase };
 }
@@ -189,6 +212,14 @@ export function main(argv) {
       // A plural mined verbatim would be unmatchable against the singular form documents
       // ordinarily use — see singularForm, which declines rather than guess.
       const { acronym, expansion } = singularForm(c.acronym, c.expansion);
+      // The two-letter prose exclusion is applied to the acronym as it will be STORED,
+      // not as it was written. fromParens counts the letters it sees, and "JDs" has three
+      // — so the candidate clears that gate and singularForm then strips the s, storing
+      // exactly the two-letter prose entry the gate exists to keep out. "Jane Does (JDs)"
+      // is DESIGN.md's own "Jane Doe (MFA)" false positive, one letter shorter. Only prose
+      // candidates are dropped here: a glossary-shaped line or a table row is evidence in
+      // its own right, and two-letter acronyms stay welcome from those.
+      if (c.prose && letterCount(acronym) < 3) continue;
       // scope stays null: mining can tell you what an acronym expands to, but not
       // whether it is an industry standard or something local to one organisation.
       const entry = {
@@ -240,6 +271,18 @@ export function main(argv) {
   return 0;
 }
 
-if (process.argv[1] && import.meta.filename === path.resolve(process.argv[1])) {
+// realpathSync, not just path.resolve: import.meta.filename is already realpath-resolved,
+// so invoked through a symlinked path — which an installed plugin's directory can be — the
+// two spellings compare unequal, main() never runs, and the CLI exits 0 having printed and
+// written nothing. The fallback covers realpathSync throwing on a path that no longer exists.
+function invokedAs(arg) {
+  try {
+    return fs.realpathSync(arg);
+  } catch {
+    return path.resolve(arg);
+  }
+}
+
+if (process.argv[1] && import.meta.filename === invokedAs(process.argv[1])) {
   process.exit(main(process.argv.slice(2)));
 }
