@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "entries": [
+    { "acronym": "2FA", "expansion": "Two Factor Authentication", "scope": "general", "domain": "identity", "definition": "Requires two distinct kinds of evidence to sign in.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "CRL", "expansion": "Certificate Revocation List", "scope": "general", "domain": "pki", "definition": "A published list of certificates that should no longer be trusted.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "CSR", "expansion": "Certificate Signing Request", "scope": "general", "domain": "pki", "definition": "The bundle of a public key and its claimed identity, sent to be signed.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "JWT", "expansion": "JSON Web Token", "scope": "general", "domain": "identity", "definition": "A signed, self-describing token passed between services.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "MFA", "expansion": "Multi-Factor Authentication", "scope": "general", "domain": "identity", "definition": "Sign-in that combines more than one independent factor.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "OCSP", "expansion": "Online Certificate Status Protocol", "scope": "general", "domain": "pki", "definition": "Asks a responder about one certificate instead of downloading a whole revocation list.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "OIDC", "expansion": "OpenID Connect", "scope": "general", "domain": "identity", "definition": "An identity layer built on top of OAuth 2.0.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "RBAC", "expansion": "Role Based Access Control", "scope": "general", "domain": "authorization", "definition": "Permissions attach to roles, and roles attach to people.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "SAML", "expansion": "Security Assertion Markup Language", "scope": "general", "domain": "identity", "definition": "The XML assertion format behind much enterprise single sign-on.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "SAN", "expansion": "Subject Alternative Name", "scope": "general", "domain": "pki", "definition": "The certificate field listing the names a certificate is valid for.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "SCIM", "expansion": "System for Cross-domain Identity Management", "scope": "general", "domain": "identity", "definition": "A standard API for provisioning and deprovisioning accounts.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "SSO", "expansion": "Single Sign-On", "scope": "general", "domain": "identity", "definition": "One sign-in that grants access to many applications.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "TLS", "expansion": "Transport Layer Security", "scope": "general", "domain": "networking", "definition": "The encryption layer underneath HTTPS.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true },
+    { "acronym": "mTLS", "expansion": "mutual Transport Layer Security", "scope": "general", "domain": "networking", "definition": "Both ends of the connection present a certificate, not just the server.", "aliases": null, "source": "curated", "sourceRef": null, "expand": true }
+  ]
+}

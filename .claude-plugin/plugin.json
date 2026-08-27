@@ -1,0 +1,8 @@
+{
+  "name": "acronym-glossary",
+  "version": "0.1.0",
+  "description": "Mine acronyms from your own documents into a local glossary, then expand each one on first use when writing.",
+  "author": { "name": "Ben Myers" },
+  "license": "MIT",
+  "keywords": ["glossary", "acronyms", "writing", "documentation"]
+}
