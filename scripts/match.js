@@ -44,7 +44,14 @@ export function isMeridiem(acr, textBefore) {
 // redundant subrange.
 const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---/;
 const REPEATING = [
-  /^(?:```|~~~)[^\n]*\n[\s\S]*?^(?:```|~~~)[^\n]*$/gm, // fenced code
+  // Fenced code, closing on the SAME delimiter that opened it (the \1 backreference) —
+  // a block opened with ``` and "closed" by an unrelated ~~~ line must not end early.
+  // The closed-fence alternative is tried first so a properly terminated block still
+  // ends at its own closing line; falling through to end-of-input only covers a fence
+  // that is never closed, which is the ordinary shape of a draft still being written.
+  // Under-skipping here would rewrite prose inside a region meant as code — the same
+  // "when in doubt, don't touch it" instinct behind the initials filter.
+  /^(```|~~~)[^\n]*\n(?:[\s\S]*?^\1[^\n]*$|[\s\S]*$)/gm,
   /`[^`\n]*`/g,                                        // inline code
   /\[[^\]\n]*\]\([^)\n]*\)/g,                          // whole markdown link
   /\]\([^)\s]*/g,                                      // link target, unclosed

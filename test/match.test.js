@@ -52,3 +52,25 @@ test('skipRanges covers frontmatter, fences, inline code, links and URLs', () =>
   assert.equal(text.slice(found[0].index - 6, found[0].index), 'about ');
   assert.ok(skipRanges(text).length >= 5);
 });
+
+test('an unterminated fence skips through end of text, not just to the next line', () => {
+  const text = 'before\n```\nMFA inside unterminated fence\nmore text with MFA after';
+  assert.equal(findOccurrences(text, ['MFA']).length, 0);
+});
+
+test('a fence only closes on its own delimiter, not a mismatched one', () => {
+  const text = [
+    '```',
+    'MFA inside',
+    '~~~',
+    'MFA between fences',
+    '```',
+    'MFA after real close',
+  ].join('\n');
+  const found = findOccurrences(text, ['MFA']);
+  // the ``` block runs through the mismatched ~~~ line to its own ``` close;
+  // only the MFA after the real close is prose.
+  assert.equal(found.length, 1);
+  assert.equal(text.slice(found[0].index, found[0].index + 3), 'MFA');
+  assert.ok(text.slice(0, found[0].index).endsWith('```\n'));
+});
