@@ -14,6 +14,11 @@ import { findOccurrences } from './match.js';
 
 // Hand-written entries outrank curated ones, which outrank anything mined. Mined
 // passes carry arbitrary tags (--source=notes), so everything unlisted ties last.
+//
+// SOURCE_RANK is exported with no consumer in this repo on purpose: it belongs to the
+// documented reuse seam (see "Building your own UX" in the README), so someone writing a
+// glossary browser or a tooltip view can order competing meanings exactly the way the
+// expander does, instead of re-deriving the precedence and drifting from it.
 export const SOURCE_RANK = { manual: 0, curated: 1 };
 export const rankOf = (source) => SOURCE_RANK[source] ?? 2;
 

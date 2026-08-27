@@ -173,7 +173,11 @@ export function htmlToLines(html) {
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
     .replace(/&[a-z#0-9]+;/gi, (e) => ENTITIES[e.toLowerCase()] ?? ' ')
     .split('\n')
-    .map((l) => l.replace(/[ \t ]+/g, ' ').replace(/\s*\|\s*$/, '').trim())
+    // The \u00A0 in the class below is a non-breaking space, written as an escape
+    // because a literal one is invisible to the next reader. Exported HTML is full of
+    // them — from the &nbsp; above and from whatever editor produced the page — and a JS
+    // regex does not treat one as \s.
+    .map((l) => l.replace(/[ \t\u00A0]+/g, ' ').replace(/\s*\|\s*$/, '').trim())
     .filter(Boolean);
 }
 
@@ -186,11 +190,13 @@ const STRIP_MARKUP = (s) => s.replace(/\*\*/g, '').replace(/^#{1,6}\s*/, '').rep
 const PAIR = /^([0-9]?[A-Za-z][A-Za-z0-9./-]{1,11})\s*(?:[-–—:]|\|)\s*(.+)$/;
 const BARE = /^([0-9]?[A-Za-z][A-Za-z0-9./-]{1,11})$/;
 
-export function fromLines(lines, { allowTwoLetter = true } = {}) {
+// Two-letter acronyms ARE accepted here, unlike in fromParens: a line shaped like
+// "AM — Asset Management" is a glossary entry by format, and the format is the evidence
+// that prose can't offer.
+export function fromLines(lines) {
   const out = [];
   const add = (acr, rawText) => {
     if (!looksLikeAcronym(acr)) return;
-    if (!allowTwoLetter && letterCount(acr) < 3) return;
     // A remaining pipe is the next table cell. Turning it into a sentence break stops
     // a third column from being absorbed into the expansion ("OID | Object Identifier
     // | Dotted-number...") while still keeping it as the definition.
