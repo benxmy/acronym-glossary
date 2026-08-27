@@ -27,6 +27,16 @@ const SKIPPABLE = new Set([
   'or', 'from', 'by', 'via', 'over', 'into', '&',
 ]);
 
+// A candidate expansion may not begin or end on a connector: "Sales, Costs, Allocations and"
+// satisfies the initials check for SCAA only because "and" lends its A, and no real expansion
+// ends in "and", "of" or "the". Punctuation is stripped before the test so "Development," and
+// "Development" answer the same; a token that is nothing but punctuation ("&") is not a
+// connector, because splitWords already discards it before initials are computed.
+function isConnector(word) {
+  const w = String(word || '').toLowerCase().replace(/[^a-z0-9&']/g, '');
+  return w.length > 0 && w !== '&' && SKIPPABLE.has(w);
+}
+
 const NUMBER_WORDS = {
   one: '1', two: '2', three: '3', four: '4', five: '5',
   six: '6', seven: '7', eight: '8', nine: '9', ten: '10',
@@ -101,7 +111,7 @@ function letterCount(acr) {
 // two words, the rest is the definition. Shortest match wins, so a longer phrase
 // that also happens to match can't swallow the definition.
 export function leadingExpansion(acr, text) {
-  const raw = (text || '').trim().replace(/^[-–—:|\s]+/, '');
+  const raw = (text || '').trim().replace(/^[^A-Za-z0-9]+/, '');
   if (!raw) return null;
   const words = raw.split(/\s+/);
   const need = letterCount(acr);
@@ -109,7 +119,9 @@ export function leadingExpansion(acr, text) {
   for (let n = 1; n <= max; n++) {
     const span = words.slice(0, n).join(' ');
     const clean = span.replace(/[.,;:\-–—]+$/, '').trim();
-    if (initialsMatch(acr, clean)) {
+    // A span ending on a connector only matched by borrowing that word's letter; the
+    // real expansion is longer, and it's the next n where the right answer usually is.
+    if (initialsMatch(acr, clean) && !isConnector(words[n - 1])) {
       let rest = words.slice(n).join(' ').replace(/^[\s—–\-:,.)]+/, '').trim();
       if (rest.length > MAX_DEFINITION) rest = `${rest.slice(0, MAX_DEFINITION).trimEnd()}…`;
       return { expansion: clean, definition: rest || null };
@@ -133,8 +145,11 @@ export function trailingExpansion(acr, before) {
   for (let n = 1; n <= max; n++) {
     const span = words.slice(words.length - n).join(' ');
     if (/[.;:()"]/.test(span)) break;
-    const clean = span.replace(/^[^A-Za-z0-9]+/, '').trim();
-    if (initialsMatch(acr, clean)) return clean;
+    const clean = span.replace(/^[^A-Za-z0-9]+/, '').replace(/[^A-Za-z0-9]+$/, '').trim();
+    // The mirror of the leading case: a span that begins on a connector only matched by
+    // borrowing that word's letter, and growing further left is where the connector came
+    // from in the first place — no shorter span here is going to fix that.
+    if (initialsMatch(acr, clean) && !isConnector(words[words.length - n])) return clean;
   }
   return null;
 }

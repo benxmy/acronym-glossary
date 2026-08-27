@@ -112,3 +112,40 @@ test('thirdColumnRole tells a category label from prose', () => {
   assert.equal(thirdColumnRole([['Acronym', 'Expansion', 'Category']]), 'domain');
   assert.equal(thirdColumnRole([['Acronym', 'Expansion', 'Notes']]), 'definition');
 });
+
+test('leadingExpansion does not stop on a connector word that completes the initials', () => {
+  assert.deepEqual(
+    leadingExpansion('SCAA', 'Sales, Costs, Allocations and Amortization for the quarter.'),
+    { expansion: 'Sales, Costs, Allocations and Amortization', definition: 'for the quarter.' },
+  );
+});
+
+test('leadingExpansion strips leading symbols from the expansion', () => {
+  assert.deepEqual(
+    leadingExpansion('SLA', '⚠ Service Level Agreement covers uptime.'),
+    { expansion: 'Service Level Agreement', definition: 'covers uptime.' },
+  );
+  // Control: the same line without the symbol was already correct and must stay correct.
+  assert.deepEqual(
+    leadingExpansion('SLA', 'Service Level Agreement covers uptime.'),
+    { expansion: 'Service Level Agreement', definition: 'covers uptime.' },
+  );
+});
+
+test('trailingExpansion refuses a span that begins on a connector word', () => {
+  assert.equal(trailingExpansion('TSS', 'we moved to Single Sign-On'), null);
+  // Still finds the ordinary case, connector or no connector in front of it.
+  assert.equal(trailingExpansion('SSO', 'we moved to Single Sign-On'), 'Single Sign-On');
+});
+
+test('trailingExpansion strips trailing symbols from the expansion', () => {
+  assert.equal(trailingExpansion('MFA', 'the Multi-Factor Authentication —'), 'Multi-Factor Authentication');
+});
+
+test('a connector-ending span is skipped, not treated as the end of the search', () => {
+  // The loop must keep growing past a rejected span rather than bailing out of it.
+  assert.deepEqual(
+    leadingExpansion('COGS', 'Cost of Goods Sold this quarter.'),
+    { expansion: 'Cost of Goods Sold', definition: 'this quarter.' },
+  );
+});
