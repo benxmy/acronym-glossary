@@ -108,11 +108,18 @@ export function singularForm(acronym, expansion) {
   let phrase = String(expansion);
   const words = phrase.trim().split(/\s+/);
   const last = words[words.length - 1] || '';
-  if (/[a-z]s$/.test(last) && !IRREVERSIBLE_PLURAL.test(last)) {
+  if (/[a-z]s$/.test(last)) {
+    if (IRREVERSIBLE_PLURAL.test(last)) return asMined;
     const candidate = [...words.slice(0, -1), last.slice(0, -1)].join(' ');
     // The singularised expansion is kept only if it still spells the singular acronym.
     // "Big Tens" → "Big Ten" fails, because a spelled-out number word becomes a digit.
-    if (initialsMatch(singular, candidate)) phrase = candidate;
+    if (!initialsMatch(singular, candidate)) return asMined;
+    phrase = candidate;
+    // Both refusals above abandon the whole transformation rather than keeping the
+    // singular acronym beside a plural expansion. A mismatched pair matches more
+    // documents but expands them wrongly — "Certificate Authorities (CA)" is prose this
+    // tool would be inserting into someone's draft, and wrong prose is a worse outcome
+    // than a missed match. An unmatched plural entry is merely inert, and visible.
   }
 
   // Last gate: if the singular acronym and the expansion we ended up with don't spell

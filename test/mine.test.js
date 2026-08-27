@@ -117,19 +117,33 @@ test('a mined plural acronym is stored singular, expansion and all', () => {
   );
 });
 
-test('the expansion is left exactly as mined when removing its s would not reverse the plural', () => {
+test('nothing is transformed when removing the expansion s would not reverse the plural', () => {
   // "Authoritie" is not a word, and an initials check cannot tell — it only ever inspects
-  // first letters. So the acronym is singularised and the expansion is not touched.
+  // first letters. Since the expansion has to stay plural, the acronym stays plural too:
+  // storing CA beside "Certificate Authorities" would expand a singular mention into
+  // "Certificate Authorities (CA)", which is wrong prose in the user's own draft.
   assert.deepEqual(
     singularForm('CAs', 'Certificate Authorities'),
-    { acronym: 'CA', expansion: 'Certificate Authorities' },
+    { acronym: 'CAs', expansion: 'Certificate Authorities' },
   );
 });
 
-test('the expansion is left alone when singularising it would break the initials match', () => {
+test('nothing is transformed when singularising the expansion would break the initials match', () => {
   // "Tens" contributes a T; "Ten" becomes the digit 10, so the singularised phrase no
-  // longer spells BT and is discarded.
-  assert.deepEqual(singularForm('BTs', 'Big Tens'), { acronym: 'BT', expansion: 'Big Tens' });
+  // longer spells BT. Same rule as above: the pair stays as mined rather than splitting
+  // a singular acronym off from a plural expansion.
+  assert.deepEqual(singularForm('BTs', 'Big Tens'), { acronym: 'BTs', expansion: 'Big Tens' });
+});
+
+test('an already-singular expansion still singularises the acronym', () => {
+  // The number-agreement rule must not block this case: there is no plural to reverse in
+  // "Subject Alternative Name", so the only thing standing between SANs and SAN is the
+  // initials check, which passes. Without this test the rule above could be tightened into
+  // refusing every plural acronym and the suite would stay green.
+  assert.deepEqual(
+    singularForm('SANs', 'Subject Alternative Name'),
+    { acronym: 'SAN', expansion: 'Subject Alternative Name' },
+  );
 });
 
 test('an uppercase trailing S is never stripped', () => {
