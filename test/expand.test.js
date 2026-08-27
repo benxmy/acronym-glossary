@@ -15,6 +15,44 @@ const entry = (over = {}) => ({
 
 const expandOnce = (text, entries, hint) => applyExpansions(text, planExpansions(text, entries, hint).changes);
 
+// A scratch document, a scratch glossary and a scratch HOME. The isolated HOME is not
+// optional: loadGlossary MERGES all three locations rather than the first winning, so a
+// test that set only ACRONYM_GLOSSARY would also read the machine's personal glossary and
+// pass or fail depending on whose machine it ran on.
+function scratch(text, entries) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'acr-expand-'));
+  const file = path.join(dir, 'doc.md');
+  fs.writeFileSync(file, text);
+  const glossary = path.join(dir, 'glossary.json');
+  fs.writeFileSync(glossary, `${JSON.stringify({ version: 1, entries }, null, 2)}\n`);
+  return { dir, file, glossary, home: fs.mkdtempSync(path.join(os.tmpdir(), 'acr-home-')) };
+}
+
+// main() returns an exit code and never calls process.exit, which is what lets it be
+// driven in-process. console.log and console.error are stubbed so the assertions can look
+// at what the CLI actually printed, and restored in a finally so one failure can't take
+// the rest of the suite's output with it.
+function runMain(argv, { glossary, home }) {
+  const had = (k) => Object.prototype.hasOwnProperty.call(process.env, k);
+  const prev = { g: process.env.ACRONYM_GLOSSARY, h: process.env.HOME, hadG: had('ACRONYM_GLOSSARY'), hadH: had('HOME') };
+  const out = [];
+  const err = [];
+  const realLog = console.log;
+  const realErr = console.error;
+  process.env.ACRONYM_GLOSSARY = glossary;
+  process.env.HOME = home;
+  console.log = (...a) => out.push(a.join(' '));
+  console.error = (...a) => err.push(a.join(' '));
+  try {
+    return { code: main(argv), out: out.join('\n'), err: err.join('\n') };
+  } finally {
+    console.log = realLog;
+    console.error = realErr;
+    if (prev.hadG) process.env.ACRONYM_GLOSSARY = prev.g; else delete process.env.ACRONYM_GLOSSARY;
+    if (prev.hadH) process.env.HOME = prev.h; else delete process.env.HOME;
+  }
+}
+
 test('a single meaning is used', () => {
   const r = resolveMeaning([entry()]);
   assert.equal(r.reason, 'unique');
@@ -114,6 +152,98 @@ test('a meridiem is not expanded, but a real use of the same acronym is', () => 
   const am = entry({ acronym: 'AM', expansion: 'Asset Management' });
   assert.equal(expandOnce('Ship it Thu AM.', [am]), 'Ship it Thu AM.');
   assert.equal(expandOnce('The AM team owns it.', [am]), 'The Asset Management (AM) team owns it.');
+});
+
+// ── An expansion that repeats its own acronym ────────────────────────────────
+// The damage this prevents is not a bad report, it is the user's prose growing by another
+// copy of the expansion on every --write.
+
+test('an entry whose expansion repeats the acronym is refused and reported', () => {
+  const gwp = entry({ acronym: 'GWP', expansion: 'GWP Gross Written Premium' });
+  const plan = planExpansions('GWP grew this year.', [gwp]);
+  assert.equal(plan.changes.length, 0);
+  assert.equal(plan.ambiguous.length, 1);
+  assert.equal(plan.ambiguous[0].reason, 'self-referential');
+  assert.deepEqual(plan.ambiguous[0].meanings, ['GWP Gross Written Premium']);
+});
+
+test('--write is idempotent: a self-referential entry never grows the document', () => {
+  const original = 'GWP grew this year.\n';
+  const s = scratch(original, [entry({ acronym: 'GWP', expansion: 'GWP Gross Written Premium' })]);
+  for (const run of [1, 2, 3]) {
+    const { code } = runMain([s.file, '--write'], s);
+    assert.equal(code, 0);
+    assert.equal(fs.readFileSync(s.file, 'utf8'), original, `run ${run} changed the document`);
+  }
+});
+
+test('an acronym that is only a substring of its expansion still expands', () => {
+  // The load-bearing control: an `includes`-based guard would see SAN inside "Subject
+  // Alternative Name" and refuse a perfectly good entry, with the idempotency test above
+  // still green.
+  const san = entry({ acronym: 'SAN', expansion: 'Subject Alternative Name' });
+  const plan = planExpansions('The SAN is set.', [san]);
+  assert.equal(plan.ambiguous.length, 0);
+  assert.equal(plan.changes.length, 1);
+  assert.equal(expandOnce('The SAN is set.', [san]), 'The Subject Alternative Name (SAN) is set.');
+});
+
+// ── main()'s success path ────────────────────────────────────────────────────
+
+test('a dry run reports the plan under "pending" and exits 1', () => {
+  const original = 'MFA is required.\n';
+  const s = scratch(original, [entry()]);
+  const { code, out } = runMain([s.file, '--json'], s);
+  assert.equal(code, 1, 'pending changes in a dry run are the hook-facing 1');
+  const report = JSON.parse(out);
+  assert.equal(Object.prototype.hasOwnProperty.call(report, 'applied'), false);
+  assert.equal(report.pending.length, 1);
+  assert.equal(report.pending[0].replacement, 'Multi-Factor Authentication (MFA)');
+  assert.equal(fs.readFileSync(s.file, 'utf8'), original, 'a dry run writes nothing');
+});
+
+test('--write rewrites the file, reports it under "applied" and exits 0', () => {
+  const s = scratch('MFA is required.\n', [entry()]);
+  const { code, out } = runMain([s.file, '--write', '--json'], s);
+  assert.equal(code, 0);
+  const report = JSON.parse(out);
+  assert.equal(Object.prototype.hasOwnProperty.call(report, 'pending'), false);
+  assert.equal(report.applied.length, 1);
+  // The observable effect, not just the exit code: without this, deleting the write
+  // altogether leaves the suite green.
+  assert.equal(fs.readFileSync(s.file, 'utf8'), 'Multi-Factor Authentication (MFA) is required.\n');
+});
+
+test('--scope reaches resolution and settles an otherwise ambiguous acronym', () => {
+  const entries = [
+    entry({ acronym: 'CA', expansion: 'Certificate Authority', scope: 'general', source: 'manual' }),
+    entry({ acronym: 'CA', expansion: 'Conditional Access', scope: 'local', source: 'manual' }),
+  ];
+  const s = scratch('The CA signs it.\n', entries);
+  const without = runMain([s.file, '--json'], s);
+  assert.equal(without.code, 0);
+  assert.equal(JSON.parse(without.out).ambiguous.length, 1, 'two manual entries tie without a hint');
+
+  const withHint = runMain([s.file, '--scope=general', '--json'], s);
+  assert.equal(withHint.code, 1);
+  const report = JSON.parse(withHint.out);
+  assert.equal(report.ambiguous.length, 0);
+  assert.equal(report.pending[0].replacement, 'Certificate Authority (CA)');
+});
+
+// ── Failure paths ───────────────────────────────────────────────────────────
+
+test('main exits 2 on a file it cannot write, and says so on stderr', () => {
+  const s = scratch('MFA is required.\n', [entry()]);
+  fs.chmodSync(s.file, 0o444);
+  try {
+    const { code, out, err } = runMain([s.file, '--write'], s);
+    assert.equal(code, 2, '2, not the hook-facing 1 that means changes are pending');
+    assert.match(err, /^expand\.js: cannot write .*doc\.md — /);
+    assert.equal(out, '', 'nothing on stdout may claim the write happened');
+  } finally {
+    fs.chmodSync(s.file, 0o644);
+  }
 });
 
 test('main exits 2 on a file it cannot read', () => {

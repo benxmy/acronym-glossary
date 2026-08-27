@@ -5,14 +5,14 @@
 //   node scripts/expand.js <file> [--write] [--domain=d] [--scope=s] [--json]
 //
 // Dry run by default. Exit codes: 0 nothing pending or changes applied, 1 changes
-// pending in a dry run, 2 usage error or a failure to read the file or the glossary.
-// That plus --json is what makes this usable from a hook later without building the
-// hook now.
+// pending in a dry run, 2 usage error or a failure to read the file or the glossary or
+// to write the file back. That plus --json is what makes this usable from a hook later
+// without building the hook now.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { byAcronym, loadGlossary, rankOf } from './glossary.js';
-import { findOccurrences, inRanges, skipRanges } from './match.js';
+import { buildMatcher, findOccurrences, inRanges, skipRanges } from './match.js';
 
 /**
  * Which meaning to use — or none. This never guesses:
@@ -61,6 +61,34 @@ export function alreadyExpanded(text, index, expansion, ranges = skipRanges(text
   return false;
 }
 
+// An expansion that contains its own acronym cannot be expanded even once safely. The
+// rewrite drops the acronym inside the text it inserts, so the next run finds that copy
+// as the document's earliest mention, looks for a spelling-out *before* it, finds none,
+// and expands again — every --write grows the user's prose by another copy. Guessing a
+// repaired expansion would be exactly the guess this codebase declines to make, so such
+// an entry is refused and reported instead.
+//
+// The test is the matcher's own boundary rule, not a substring check: `includes` would
+// see SAN inside "Subject Alternative Name" and silently stop a perfectly good entry
+// from ever expanding. buildMatcher is used rather than findOccurrences because skip
+// regions and the AM/PM guard are prose concerns — an expansion is not prose being
+// rewritten, and the meridiem guard could even hide a real self-reference here. The
+// regex is built fresh per call, so its /g lastIndex starts clean.
+export function isSelfReferential(acronym, expansion) {
+  const matcher = buildMatcher([acronym]);
+  return matcher ? matcher.test(String(expansion)) : false;
+}
+
+/**
+ * The plan: what would be rewritten, and what was deliberately left alone.
+ *
+ * Every entry in `ambiguous` carries the reason it was skipped — `ambiguous` (more than
+ * one meaning survived resolution) or `self-referential` (the entry's own expansion
+ * contains the acronym, so it is malformed and needs correcting by hand). resolveMeaning's
+ * other reasons — `unique`, `source-rank`, `suppressed` — never surface here: the first
+ * two produce a change and the third is the user's own `expand: false`, asked for and so
+ * not worth reporting.
+ */
 export function planExpansions(text, entries, hint = {}) {
   const index = byAcronym(entries);
   const ranges = skipRanges(text);
@@ -76,9 +104,22 @@ export function planExpansions(text, entries, hint = {}) {
         ambiguous.push({
           acronym: occ.acronym,
           index: occ.index,
+          reason: resolved.reason,
           meanings: resolved.candidates.map((e) => e.expansion),
         });
       }
+      continue;
+    }
+    // Checked before the already-expanded test, not after: a self-referential entry is
+    // malformed whatever the document says, and reporting it must not depend on whether
+    // this particular document happens to spell the expansion out earlier.
+    if (isSelfReferential(occ.acronym, resolved.entry.expansion)) {
+      ambiguous.push({
+        acronym: occ.acronym,
+        index: occ.index,
+        reason: 'self-referential',
+        meanings: [resolved.entry.expansion],
+      });
       continue;
     }
     if (alreadyExpanded(text, occ.index, resolved.entry.expansion, ranges)) continue;
@@ -153,11 +194,21 @@ export function main(argv) {
   };
   const { changes, ambiguous } = planExpansions(text, entries, hint);
 
-  // Write first, report second — kept uncaught, as directed, but ordered so a failed
-  // write throws before anything tells the caller "applied". Reporting a write that
-  // never happened would be a worse lie than the exception itself.
+  // Write first, report second, so nothing tells the caller "applied" before the bytes
+  // are on disk. A failed write is a 2, the same code as the two read failures above,
+  // because 1 is the hook-facing "changes pending" signal: a hook that saw 1 here would
+  // conclude there was a plan to apply when what actually happened is that the file could
+  // not be written. applyExpansions runs outside the try on purpose — the catch covers
+  // the I/O and nothing else, so a bug in the rewriter can never be reported as a disk
+  // problem.
   if (flags.write && changes.length) {
-    fs.writeFileSync(file, applyExpansions(text, changes));
+    const rewritten = applyExpansions(text, changes);
+    try {
+      fs.writeFileSync(file, rewritten);
+    } catch (err) {
+      console.error(`expand.js: cannot write ${file} — ${err.message}`);
+      return 2;
+    }
   }
 
   if (flags.json) {
@@ -168,7 +219,11 @@ export function main(argv) {
   } else {
     for (const c of changes) console.log(`${c.acronym} → ${c.replacement}`);
     for (const a of ambiguous) {
-      console.log(`? ${a.acronym} left alone, ${a.meanings.length} meanings: ${a.meanings.join('; ')}`);
+      if (a.reason === 'self-referential') {
+        console.log(`? ${a.acronym} left alone: its expansion repeats the acronym (${a.meanings[0]}) — correct that entry by hand`);
+      } else {
+        console.log(`? ${a.acronym} left alone, ${a.meanings.length} meanings: ${a.meanings.join('; ')}`);
+      }
     }
   }
 

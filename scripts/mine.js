@@ -17,7 +17,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  fromLines, fromParens, fromTable, hasAcronymHeader, htmlToLines, thirdColumnRole,
+  fromLines, fromParens, fromTable, hasAcronymHeader, htmlToLines, initialsMatch,
+  looksLikeAcronym, thirdColumnRole,
 } from './extract.js';
 import { entryKey, glossaryLocations, readGlossaryFile, saveGlossary } from './glossary.js';
 
@@ -75,6 +76,49 @@ export function candidatesFrom(file) {
     return [...fromLines(raw.split('\n')), ...fromParens(raw)];
   }
   return [];
+}
+
+// Plural shapes that removing the final "s" does not reverse: "Authorities" would become
+// "Authoritie" and "Addresses" "Addresse". initialsMatch cannot catch that on its own,
+// because it only ever inspects first letters — a mangled final word still matches. So
+// these shapes are refused rather than repaired. Latin plurals ("Indices" → "Indice")
+// still slip through; naming every one of them would mean guessing at morphology, and the
+// cost of a miss is one visible misspelling in one mined entry a human can correct.
+const IRREVERSIBLE_PLURAL = /(?:ies|(?:s|x|z|ch|sh)es)$/i;
+
+/**
+ * A plural acronym stored verbatim is close to useless. Matching is case-sensitive and
+ * keys on the stored spelling, so an entry stored as "SANs" never matches a document that
+ * says "SAN" — the ordinary case — while an entry stored as "SAN" matches both, since the
+ * matcher captures a trailing lowercase s of its own accord and the expander carries it
+ * into the parenthesis.
+ *
+ * Only a LOWERCASE trailing s is a plural marker, the same rule initialsMatch already
+ * uses: RADIUS, CORS and PKCS end in a capital S that belongs to the expansion.
+ *
+ * Every step here may decline, and a refusal returns the pair exactly as mined. That is
+ * always safe: the entry still lands in the glossary, where a human can see it and fix it.
+ */
+export function singularForm(acronym, expansion) {
+  const asMined = { acronym, expansion };
+  if (!/[A-Z]s$/.test(String(acronym))) return asMined;
+  const singular = String(acronym).slice(0, -1);
+  if (!looksLikeAcronym(singular)) return asMined;
+
+  let phrase = String(expansion);
+  const words = phrase.trim().split(/\s+/);
+  const last = words[words.length - 1] || '';
+  if (/[a-z]s$/.test(last) && !IRREVERSIBLE_PLURAL.test(last)) {
+    const candidate = [...words.slice(0, -1), last.slice(0, -1)].join(' ');
+    // The singularised expansion is kept only if it still spells the singular acronym.
+    // "Big Tens" → "Big Ten" fails, because a spelled-out number word becomes a digit.
+    if (initialsMatch(singular, candidate)) phrase = candidate;
+  }
+
+  // Last gate: if the singular acronym and the expansion we ended up with don't spell
+  // each other, transform nothing at all.
+  if (!initialsMatch(singular, phrase)) return asMined;
+  return { acronym: singular, expansion: phrase };
 }
 
 function parseArgs(argv) {
@@ -135,11 +179,14 @@ export function main(argv) {
         unmatched.set(c.acronym, row);
         continue;
       }
+      // A plural mined verbatim would be unmatchable against the singular form documents
+      // ordinarily use — see singularForm, which declines rather than guess.
+      const { acronym, expansion } = singularForm(c.acronym, c.expansion);
       // scope stays null: mining can tell you what an acronym expands to, but not
       // whether it is an industry standard or something local to one organisation.
       const entry = {
-        acronym: c.acronym,
-        expansion: c.expansion,
+        acronym,
+        expansion,
         scope: null,
         domain: c.domain ?? null,
         definition: c.definition ?? c.extraDefinition ?? null,
@@ -161,10 +208,26 @@ export function main(argv) {
     return 0;
   }
 
-  saveGlossary(out, [...existing, ...added]);
+  // Both writes return 1, not 2: in this CLI 1 already means an I/O failure — the
+  // unreadable-path and unreadable-glossary cases above — while 2 means the arguments
+  // were wrong, and a full disk is not a typo. (The expander uses 2 for its failed write,
+  // because there 1 is the hook-facing "changes pending" signal. The two CLIs differ on
+  // purpose.) Each catch wraps one write and nothing else, so a failure to save the
+  // glossary is never reported as a failure to save the shortlist, or the reverse.
+  try {
+    saveGlossary(out, [...existing, ...added]);
+  } catch (err) {
+    console.error(`mine.js: cannot write ${out} — ${err.message}`);
+    return 1;
+  }
   const unmatchedFile = path.join(path.dirname(out), 'glossary-unmatched.json');
   const shortlist = [...unmatched.values()].sort((a, b) => b.count - a.count);
-  fs.writeFileSync(unmatchedFile, `${JSON.stringify(shortlist, null, 2)}\n`);
+  try {
+    fs.writeFileSync(unmatchedFile, `${JSON.stringify(shortlist, null, 2)}\n`);
+  } catch (err) {
+    console.error(`mine.js: cannot write ${unmatchedFile} — ${err.message}`);
+    return 1;
+  }
   console.log(`${files.length} files → ${added.length} new entries in ${out}`);
   console.log(`${unmatched.size} acronyms with no defensible expansion → ${unmatchedFile}`);
   return 0;

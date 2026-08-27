@@ -3,11 +3,24 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { walk, parseDelimited, candidatesFrom, main } from '../scripts/mine.js';
+import { walk, parseDelimited, candidatesFrom, singularForm, main } from '../scripts/mine.js';
 import { readGlossaryFile } from '../scripts/glossary.js';
 
 function tmpdir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'acr-mine-'));
+}
+
+// main() returns an exit code and never calls process.exit, so it can be driven in-process;
+// console.error is stubbed to check the message goes to stderr, and restored in a finally.
+function runMain(argv) {
+  const err = [];
+  const real = console.error;
+  console.error = (...a) => err.push(a.join(' '));
+  try {
+    return { code: main(argv), err: err.join('\n') };
+  } finally {
+    console.error = real;
+  }
 }
 
 test('parseDelimited handles quotes, doubled quotes and embedded newlines', () => {
@@ -91,6 +104,67 @@ test('--dry-run writes nothing', () => {
   const out = path.join(dir, 'glossary.json');
   main([notes, `--out=${out}`, '--dry-run']);
   assert.equal(fs.existsSync(out), false);
+});
+
+// ── Plural acronyms ─────────────────────────────────────────────────────────
+// A plural stored verbatim is unmatchable: matching is case-sensitive and keys on the
+// stored spelling, so "SANs" never matches a document that says "SAN".
+
+test('a mined plural acronym is stored singular, expansion and all', () => {
+  assert.deepEqual(
+    singularForm('SANs', 'Subject Alternative Names'),
+    { acronym: 'SAN', expansion: 'Subject Alternative Name' },
+  );
+});
+
+test('the expansion is left exactly as mined when removing its s would not reverse the plural', () => {
+  // "Authoritie" is not a word, and an initials check cannot tell — it only ever inspects
+  // first letters. So the acronym is singularised and the expansion is not touched.
+  assert.deepEqual(
+    singularForm('CAs', 'Certificate Authorities'),
+    { acronym: 'CA', expansion: 'Certificate Authorities' },
+  );
+});
+
+test('the expansion is left alone when singularising it would break the initials match', () => {
+  // "Tens" contributes a T; "Ten" becomes the digit 10, so the singularised phrase no
+  // longer spells BT and is discarded.
+  assert.deepEqual(singularForm('BTs', 'Big Tens'), { acronym: 'BT', expansion: 'Big Tens' });
+});
+
+test('an uppercase trailing S is never stripped', () => {
+  const radius = ['RADIUS', 'Remote Authentication Dial-In User Service'];
+  const cors = ['CORS', 'Cross-Origin Resource Sharing'];
+  assert.deepEqual(singularForm(...radius), { acronym: radius[0], expansion: radius[1] });
+  assert.deepEqual(singularForm(...cors), { acronym: cors[0], expansion: cors[1] });
+});
+
+test('the singular form is what actually reaches the glossary', () => {
+  const dir = tmpdir();
+  const notes = path.join(dir, 'notes.md');
+  fs.writeFileSync(notes, 'We issued SANs (Subject Alternative Names) last year.\n');
+  const out = path.join(dir, 'glossary.json');
+  assert.equal(main([notes, `--out=${out}`]), 0);
+  const entries = readGlossaryFile(out);
+  assert.deepEqual(entries.map((e) => [e.acronym, e.expansion]), [['SAN', 'Subject Alternative Name']]);
+});
+
+test('main exits 1 on a glossary it cannot write, and says so on stderr', () => {
+  const dir = tmpdir();
+  const notes = path.join(dir, 'notes.md');
+  fs.writeFileSync(notes, '- **MFA** — Multi-Factor Authentication\n');
+  const locked = path.join(dir, 'locked');
+  fs.mkdirSync(locked);
+  fs.chmodSync(locked, 0o555);
+  const out = path.join(locked, 'glossary.json');
+  try {
+    const { code, err } = runMain([notes, `--out=${out}`]);
+    assert.equal(code, 1, '1 is this CLI\'s I/O failure; 2 means the arguments were wrong');
+    assert.match(err, /^mine\.js: cannot write .*glossary\.json — /);
+    assert.equal(fs.existsSync(out), false);
+  } finally {
+    fs.chmodSync(locked, 0o755);
+  }
 });
 
 test('main exits 2 with no paths', () => {

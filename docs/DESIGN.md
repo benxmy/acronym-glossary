@@ -61,7 +61,9 @@ runner — so zero devDependencies either. Nothing to audit, nothing to keep pat
 
 ```
 acronym-glossary/
-├── .claude-plugin/plugin.json
+├── .claude-plugin/
+│   ├── plugin.json
+│   └── marketplace.json   # so a clone can be added as a local marketplace
 ├── skills/acronym-glossary/SKILL.md
 ├── commands/
 │   ├── glossary-mine.md
@@ -74,6 +76,9 @@ acronym-glossary/
 │   └── expand.js     # CLI: draft → first-use expansions
 ├── test/
 ├── examples/glossary.example.json
+├── docs/DESIGN.md    # this document
+├── package.json
+├── .gitignore        # keeps a real glossary out of the repo by accident-proofing
 ├── README.md
 └── LICENSE
 ```
@@ -177,6 +182,13 @@ column `acronym`, the second column *is* the expansion by construction — which
 only way `FedRAMP`-shaped entries ever get mined. Without a trusted header, the initials
 match is still required.
 
+**A mined plural is stored singular where it can be.** `SANs (Subject Alternative Names)`
+is stored as `SAN` / `Subject Alternative Name`, because matching is case-sensitive and
+keys on the stored spelling: an entry stored as `SANs` would never match a document that
+says `SAN`, while `SAN` matches both. Only a lowercase trailing `s` is stripped, and the
+expansion is only singularised when the result still spells the acronym — otherwise the
+pair is stored exactly as mined, which is always safe because a human can still see it.
+
 Every entry is tagged with its `source`, so a pass that turns out to be junk can be
 deleted wholesale rather than picked apart.
 
@@ -216,6 +228,12 @@ A glossary of any size will have an acronym with eight meanings. Silently pickin
 worse than doing nothing: it produces a confident, wrong expansion that a reader has no
 reason to distrust. The report is what tells the human to disambiguate the glossary or
 pass a hint.
+
+One more entry is refused and reported the same way: **an expansion that contains its own
+acronym.** Rewriting it would put the acronym inside the inserted text, so the next run
+would read that copy as the document's first mention and expand it again — the user's prose
+growing on every `--write`. Repairing the expansion would be a guess, so it is reported
+with `reason: "self-referential"` and left to the human to correct.
 
 ### The meridiem guard
 

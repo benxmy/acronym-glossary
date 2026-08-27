@@ -21,7 +21,9 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/expand.js" <file> --json
 - `ambiguous` lists acronyms it refused to expand because more than one meaning
   survived resolution. **Do not pick one for the user.** Show them the competing
   meanings and ask, or pass a hint (`--domain=…` / `--scope=…`) if the document's
-  subject makes the right domain obvious.
+  subject makes the right domain obvious. One entry there carries
+  `reason: "self-referential"` instead: its expansion repeats its own acronym, so the
+  entry is malformed and its expansion needs correcting by hand in the glossary.
 - Exit code `1` in a dry run means changes are pending; `0` means nothing to do (a
   missing glossary counts as nothing to do, not an error); `2` means it could not run
   at all — an unreadable input file, or a glossary that exists but is malformed or
