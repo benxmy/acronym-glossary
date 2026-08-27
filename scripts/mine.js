@@ -10,7 +10,9 @@
 // Every entry carries its source tag, so a pass that turns out to be junk can be
 // deleted wholesale instead of picked apart. Acronyms with no defensible expansion go
 // to a sibling glossary-unmatched.json rather than being dropped silently — that file
-// is the shortlist worth adding by hand.
+// is the shortlist worth adding by hand. That file is a report of the most recent run
+// and is rewritten each time, so pass every source you care about to a single
+// invocation rather than mining one path at a time.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -95,7 +97,17 @@ export function main(argv) {
   const source = typeof flags.source === 'string' ? flags.source : 'mined';
   const out = typeof flags.out === 'string' ? flags.out : glossaryLocations()[0];
 
-  const files = paths.flatMap((p) => walk(p));
+  // walk() throws on a path that doesn't resolve (ENOENT) or that fs can't stat —
+  // an ordinary CLI typo. Caught narrowly here, not around candidatesFrom or the
+  // mining loop below: a bad path argument and a mid-run read failure on one document
+  // are different failures, and this catch must not swallow the second kind.
+  let files;
+  try {
+    files = paths.flatMap((p) => walk(p));
+  } catch (err) {
+    console.error(`mine.js: cannot read path — ${err.message}`);
+    return 1;
+  }
 
   // readGlossaryFile throws (loudly, by design) on a glossary that exists but is
   // unreadable or malformed. Mining is additive, so it never repairs or replaces that

@@ -96,3 +96,10 @@ test('--dry-run writes nothing', () => {
 test('main exits 2 with no paths', () => {
   assert.equal(main([]), 2);
 });
+
+test('main exits 1 on a path that does not exist', () => {
+  const dir = tmpdir();
+  const out = path.join(dir, 'glossary.json');
+  assert.equal(main([path.join(dir, 'nope.md'), `--out=${out}`]), 1);
+  assert.equal(fs.existsSync(out), false);
+});
