@@ -93,6 +93,23 @@ test('several acronyms in one document all land at the right offsets', () => {
   );
 });
 
+test('an expansion inside code, a link or frontmatter does not count as already expanded', () => {
+  const cases = [
+    ['inline code', 'See `Multi-Factor Authentication` in the sample. MFA is required.'],
+    ['link text', 'See [Multi-Factor Authentication](https://example.com/x) docs. MFA is required.'],
+    ['frontmatter', '---\ntitle: Multi-Factor Authentication rollout\n---\nMFA is required.'],
+  ];
+  for (const [label, text] of cases) {
+    const out = expandOnce(text, [entry()]);
+    assert.ok(out.includes('Multi-Factor Authentication (MFA)'), `${label}: first prose use should expand`);
+  }
+});
+
+test('a genuine earlier mention in prose still counts as already expanded', () => {
+  const text = 'We use Multi-Factor Authentication here. MFA is required.';
+  assert.equal(expandOnce(text, [entry()]), text);
+});
+
 test('a meridiem is not expanded, but a real use of the same acronym is', () => {
   const am = entry({ acronym: 'AM', expansion: 'Asset Management' });
   assert.equal(expandOnce('Ship it Thu AM.', [am]), 'Ship it Thu AM.');

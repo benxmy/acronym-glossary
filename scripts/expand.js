@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { byAcronym, loadGlossary, rankOf } from './glossary.js';
-import { findOccurrences } from './match.js';
+import { findOccurrences, inRanges, skipRanges } from './match.js';
 
 /**
  * Which meaning to use — or none. This never guesses:
@@ -41,13 +41,29 @@ export function resolveMeaning(candidates, { domain, scope } = {}) {
 }
 
 // Spelled out earlier in the document already? Then the first mention has done its
-// job and rewriting would only repeat it.
-export function alreadyExpanded(text, index, expansion) {
-  return text.slice(0, index).toLowerCase().includes(expansion.toLowerCase());
+// job and rewriting would only repeat it. An appearance inside a skip region (code,
+// a link, a bare URL, frontmatter) doesn't count — a config sample or a link title
+// that happens to contain the spelled-out phrase is not a prose use, and treating it
+// as one would silently swallow the document's real first mention. All four skip-
+// region kinds are treated the same way here, uniformly, even the ones a reader does
+// technically see rendered (link text, a frontmatter title): the alternative is a
+// carve-out per region kind, and the cost of skipping one redundant expansion is far
+// smaller than the cost of silently never expanding at all.
+export function alreadyExpanded(text, index, expansion, ranges = skipRanges(text)) {
+  const prefix = text.slice(0, index).toLowerCase();
+  const needle = expansion.toLowerCase();
+  let from = 0;
+  let found;
+  while ((found = prefix.indexOf(needle, from)) !== -1) {
+    if (!inRanges(found, ranges)) return true;
+    from = found + 1;
+  }
+  return false;
 }
 
 export function planExpansions(text, entries, hint = {}) {
   const index = byAcronym(entries);
+  const ranges = skipRanges(text);
   const firstSeen = new Set();
   const changes = [];
   const ambiguous = [];
@@ -65,7 +81,7 @@ export function planExpansions(text, entries, hint = {}) {
       }
       continue;
     }
-    if (alreadyExpanded(text, occ.index, resolved.entry.expansion)) continue;
+    if (alreadyExpanded(text, occ.index, resolved.entry.expansion, ranges)) continue;
     // The plural rides inside the parenthesis rather than being grafted onto the
     // expansion: pluralising "Certificate Authority" mechanically would produce
     // "Authoritys", and inventing a plural is exactly the kind of guess this
@@ -137,6 +153,13 @@ export function main(argv) {
   };
   const { changes, ambiguous } = planExpansions(text, entries, hint);
 
+  // Write first, report second — kept uncaught, as directed, but ordered so a failed
+  // write throws before anything tells the caller "applied". Reporting a write that
+  // never happened would be a worse lie than the exception itself.
+  if (flags.write && changes.length) {
+    fs.writeFileSync(file, applyExpansions(text, changes));
+  }
+
   if (flags.json) {
     const key = flags.write ? 'applied' : 'pending';
     console.log(JSON.stringify({ file, [key]: changes, ambiguous }, null, 2));
@@ -149,10 +172,7 @@ export function main(argv) {
     }
   }
 
-  if (flags.write) {
-    if (changes.length) fs.writeFileSync(file, applyExpansions(text, changes));
-    return 0;
-  }
+  if (flags.write) return 0;
   return changes.length ? 1 : 0;
 }
 
