@@ -186,8 +186,23 @@ match is still required.
 is stored as `SAN` / `Subject Alternative Name`, because matching is case-sensitive and
 keys on the stored spelling: an entry stored as `SANs` would never match a document that
 says `SAN`, while `SAN` matches both. Only a lowercase trailing `s` is stripped, and the
-expansion is only singularised when the result still spells the acronym — otherwise the
-pair is stored exactly as mined, which is always safe because a human can still see it.
+expansion's final word is singularised only when **two** conditions both hold:
+
+1. **The plural is a regular one that dropping a single `s` reverses.** This is tested as
+   positive evidence, not as the absence of a known-bad shape: the letter in front of the
+   `s` has to be an `e` or a consonant that is not a sibilant. `Names`, `Domains`,
+   `Services` and `Certificates` qualify. `Certificate Authorities` does not, because
+   `Authoritie` is not a word — and neither does a final word that ends in a lowercase `s`
+   without being a plural at all, which is the larger and more ordinary class:
+   `Analysis`, `Status`, `Access`, `Process`.
+2. **The singularised result still spells the acronym.** `Big Tens` fails this one, because
+   a spelled-out number word becomes a digit, so `Big Ten` no longer spells `BT`.
+
+An initials check cannot stand in for the first condition, because it only ever inspects
+first letters — a mangled final word satisfies it happily. When either condition fails the
+pair is stored exactly as mined, which is always safe: the entry is still in the glossary
+where a human can see it. The alternative is worse than a missed match, because the
+expander would carry the mangled expansion into the user's own prose.
 
 Every entry is tagged with its `source`, so a pass that turns out to be junk can be
 deleted wholesale rather than picked apart.

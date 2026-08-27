@@ -127,6 +127,17 @@ Stated plainly, so they don't surprise you later:
   `Subject Alternative Name (SANs)`, not `Subject Alternative Names (SANs)` —
   mechanically pluralizing the expansion (`Authoritys` for `Certificate Authority`)
   would be exactly the kind of guess this tool declines to make.
+- **A mined plural is sometimes left in a shape that doesn't quite fit.** Singularising a
+  mined pair is abandoned outright rather than half-done, and two shapes come out the far
+  side imperfect. Where the expansion's final word is a possessive or an irregular plural,
+  the acronym goes singular and that word stays as it was — `Policy Users' (PUs)` is stored
+  as `PU` / `Policy Users'`, so a first mention of `PU` expands to the plural. Where the
+  final word is invariant, or a plural that dropping one `s` doesn't reverse, the plural
+  acronym is kept instead — `Time Series (TSs)` stays `TSs`, and a document that says `TS`
+  then matches nothing. Both are the price of refusing to guess: telling an invariant
+  `Series` from a real plural `Authorities` means guessing at morphology, and a wrong guess
+  writes a misspelling into your draft, where an entry left as mined just sits visibly in a
+  file you can edit.
 - **`AM` and `PM` are special-cased.** They're real acronyms in plenty of glossaries and
   they also collide with clock time. What's immediately before them decides: a digit, a
   weekday (`Thu`, `Thursday`), or `today`/`tomorrow`/`yesterday` makes it a meridiem, and

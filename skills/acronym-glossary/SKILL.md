@@ -17,17 +17,20 @@ Run the expander on the file and read its plan before changing anything:
 node "${CLAUDE_PLUGIN_ROOT}/scripts/expand.js" <file> --json
 ```
 
-- `pending` lists the rewrites it would make. Apply them by re-running with `--write`.
+- `pending` lists the rewrites it would make. Apply them by re-running with `--write`,
+  which reports the same list under `applied` instead — the key name is how you tell a
+  proposal from something already on disk.
 - `ambiguous` lists acronyms it refused to expand because more than one meaning
   survived resolution. **Do not pick one for the user.** Show them the competing
   meanings and ask, or pass a hint (`--domain=…` / `--scope=…`) if the document's
   subject makes the right domain obvious. One entry there carries
   `reason: "self-referential"` instead: its expansion repeats its own acronym, so the
   entry is malformed and its expansion needs correcting by hand in the glossary.
-- Exit code `1` in a dry run means changes are pending; `0` means nothing to do (a
-  missing glossary counts as nothing to do, not an error); `2` means it could not run
-  at all — an unreadable input file, or a glossary that exists but is malformed or
-  unparseable.
+- Exit code `1` in a dry run means changes are pending. `0` means nothing to do (a
+  missing glossary counts as nothing to do, not an error), and `0` is also what a
+  successful `--write` returns. `2` means it did not do what you asked: a usage error, an
+  unreadable input file, a glossary that exists but is malformed, or a document it could
+  not write back. Never read a `2` as "nothing to expand".
 
 If the document is one you are currently drafting rather than one on disk, apply the
 same rule by hand: expand each acronym on first mention only, leave later mentions
